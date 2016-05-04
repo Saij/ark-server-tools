@@ -16,8 +16,8 @@ doUpgradeTools() {
     sudo=
   fi
   echo "arkmanager v${arkstVersion}: Checking for updates..."
-  arkstLatestVersion=`curl -s https://raw.githubusercontent.com/FezVrasta/ark-server-tools/${arkstChannel}/.version`
-  arkstLatestCommit=`curl -s https://api.github.com/repos/FezVrasta/ark-server-tools/git/refs/heads/${arkstChannel} | sed -n 's/^ *"sha": "\(.*\)",.*/\1/p'`
+  arkstLatestVersion=`curl -s https://raw.githubusercontent.com/Saij/ark-server-tools/${arkstChannel}/.version`
+  arkstLatestCommit=`curl -s https://api.github.com/repos/Saij/ark-server-tools/git/refs/heads/${arkstChannel} | sed -n 's/^ *"sha": "\(.*\)",.*/\1/p'`
 
   if [ "$arkstLatestVersion" == "Not Found" ]; then
     echo "Channel ${arkstChannel} does not exist"
@@ -1151,6 +1151,49 @@ doUpdate() {
   rm -f "${arkserverroot}/.ark-update.lock"
 }
 
+doUpdateMods() {
+  local modupdate=1
+
+  echo "$$" >"${arkserverroot}/.ark-update.lock.$$" 2>/dev/null
+  while true; do
+    if ! ln "${arkserverroot}/.ark-update.lock.$$" "${arkserverroot}/.ark-update.lock" 2>/dev/null; then
+      local lockpid="$(<"${arkserverroot}/.ark-update.lock")"
+      if [ -n "$lockpid" ] && [ "$lockpid" != "$$" ] && kill -0 "$lockpid" 2>/dev/null; then
+        echo "Update already in progress (PID: $lockpid)"
+        rm -f "${arkserverroot}/.ark-update.lock.$$" 2>/dev/null
+        return 1
+      fi
+      rm -f "${arkserverroot}/.ark-update.lock"
+    else
+      break
+    fi
+  done
+  rm -f "${arkserverroot}/.ark-update.lock.$$"
+
+  if [ -n "$modupdate" ]; then
+    if ! doDownloadAllMods; then
+      modupdate=
+    fi
+    if ! isAnyModUpdateNeeded; then
+      modupdate=
+    fi
+  fi
+
+  cd "$arkserverroot"
+
+  if [ -n "$modupdate" ]; then
+    for modid in $(getModIds); do
+      if isModUpdateNeeded $modid; then
+        echo "Updating mod $modid"
+        doExtractMod $modid
+        echo "`timestamp`: Mod $modid updated" >> "$logdir/update.log"
+      fi
+    done
+  fi
+
+  rm -f "${arkserverroot}/.ark-update.lock"
+}
+
 #
 # Get the Mod IDs of the installed mods and the requested mods
 #
@@ -1687,6 +1730,7 @@ showUsage() {
   echo "installmod <modid>    Installs a mod from the Steam workshop"
   echo "uninstallmod <modid>  Removes the mod from the Mods directory"
   echo "reinstallmod <modid>  Removes and re-installs a mod in the Mods directory"
+  echo "updatemods            Updates all Mods"
   echo "restart               Stops the server and then starts it"
   echo "run                   Runs the server without daemonizing"
   echo "start                 Starts the server"
@@ -1869,6 +1913,9 @@ while true; do
       reinstallmod)
         doUninstallMod "${args[@]}"
         doInstallMod "${args[@]}"
+      ;;
+      updatemods)
+        doUpdateMods
       ;;
       backup)
         doBackup
